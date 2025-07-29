@@ -33,7 +33,7 @@
       },
       "600893": {
         "buy": {
-          "k_max": 25,
+          "k_max": 20,
           "d_max": 25,
           "j_max": 10,
           "require_turn_up": false

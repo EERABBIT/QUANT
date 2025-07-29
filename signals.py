@@ -1,80 +1,84 @@
-# 文件：signals.py
 import pandas as pd
 from collections import namedtuple
 
 Signal = namedtuple("Signal", ["side", "time", "k", "d", "j", "reason"])
 
-
-def calc_kdj(df: pd.DataFrame, n=9, m1=3, m2=3):
-    df = df.copy()
-    low_list = df['low'].rolling(window=n, min_periods=1).min()
-    high_list = df['high'].rolling(window=n, min_periods=1).max()
-    rsv = (df['close'] - low_list) / (high_list - low_list) * 100
-    df['K'] = rsv.ewm(alpha=1 / m1, adjust=False).mean()
-    df['D'] = df['K'].ewm(alpha=1 / m2, adjust=False).mean()
-    df['J'] = 3 * df['K'] - 2 * df['D']
+def calc_kdj(df: pd.DataFrame, n=9, m1=3, m2=3) -> pd.DataFrame:
+    low_list = df["low"].rolling(n, min_periods=1).min()
+    high_list = df["high"].rolling(n, min_periods=1).max()
+    rsv = (df["close"] - low_list) / (high_list - low_list) * 100
+    df["K"] = rsv.ewm(com=m1-1, adjust=False).mean()
+    df["D"] = df["K"].ewm(com=m2-1, adjust=False).mean()
+    df["J"] = 3 * df["K"] - 2 * df["D"]
     return df
 
+def get_threshold_for(code: str, thresholds: dict) -> dict:
+    return thresholds.get(code) or thresholds.get("default", {})
 
-def detect_signal(df: pd.DataFrame, code: str, thresholds: dict):
-    t = thresholds.get(code, thresholds.get("default"))
-    row = df.iloc[-1]
-    prev = df.iloc[-2] if len(df) >= 2 else row
+def is_buy_signal(k, d, j, prev_j, threshold: dict) -> bool:
+    #cond = (
+    #    k+d < threshold["k_max"] + threshold["d_max"] and
+    #    j < threshold["j_max"]
+    #)
+    cond = (
+        k < threshold["k_max"] and
+        d < threshold["d_max"] and
+        j < threshold["j_max"]
+    )
+    #print(f"[BUY CHECK] k={k:.2f}, d={d:.2f}, j={j:.2f}, cond={cond}")
+    if threshold.get("require_turn_up", False) and prev_j is not None:
+        cond = cond and (j > prev_j)
+    return cond
 
-    k, d, j = row["K"], row["D"], row["J"]
-    k_prev, d_prev, j_prev = prev["K"], prev["D"], prev["J"]
+def is_sell_signal(k, d, j, prev_j, threshold: dict) -> bool:
+    cond = (
+        k > threshold["k_min"] and
+        d > threshold["d_min"] and
+        j > threshold["j_min"]
+    )
+    #print(f"[SELL CHECK] k={k:.2f}, d={d:.2f}, j={j:.2f}, cond={cond}")
 
-    if (
-        k < t["buy"]["k_max"] and
-        d < t["buy"]["d_max"] and
-        j < t["buy"]["j_max"] and
-        (not t["buy"].get("require_turn_up") or (k > k_prev and d > d_prev and j > j_prev))
-    ):
-        return Signal("BUY", row["time"], k, d, j, "threshold and turn_up")
+    if threshold.get("require_turn_down", False) and prev_j is not None:
+        cond = cond and (j < prev_j)
+    return cond
 
-    if (
-        k > t["sell"]["k_min"] and
-        d > t["sell"]["d_min"] and
-        j > t["sell"]["j_min"] and
-        (not t["sell"].get("require_turn_down") or (k < k_prev and d < d_prev and j < j_prev))
-    ):
-        return Signal("SELL", row["time"], k, d, j, "threshold and turn_down")
+def detect_signal(df: pd.DataFrame, code: str, thresholds: dict) -> Signal:
+    thresholds = get_threshold_for(code, thresholds)
+    last_row = df.iloc[-1]
+    prev_row = df.iloc[-2] if len(df) >= 2 else last_row
 
-    return Signal("NONE", row["time"], k, d, j, "")
+    k, d, j = last_row["K"], last_row["D"], last_row["J"]
+    prev_j = prev_row["J"]
+    t = last_row["time"]
 
+    if is_buy_signal(k, d, j, prev_j, thresholds["buy"]):
+        return Signal("BUY", t, k, d, j, "low KDJ")
+
+    if is_sell_signal(k, d, j, prev_j, thresholds["sell"]):
+        return Signal("SELL", t, k, d, j, "high KDJ")
+
+    return Signal("NONE", t, k, d, j, "")
 
 def detect_all_signals(df: pd.DataFrame, code: str, thresholds: dict) -> pd.DataFrame:
+    thresholds = get_threshold_for(code, thresholds)
+    signals = []
+    prev_j = None
+
+    for i in range(len(df)):
+        row = df.iloc[i]
+        k, d, j = row["K"], row["D"], row["J"]
+
+        signal = "NONE"
+        if pd.notna(k) and pd.notna(d) and pd.notna(j):
+            if is_buy_signal(k, d, j, prev_j, thresholds["buy"]):
+                signal = "BUY"
+            elif is_sell_signal(k, d, j, prev_j, thresholds["sell"]):
+                signal = "SELL"
+
+        signals.append(signal)
+        prev_j = j
+
     df = df.copy()
-    df["signal"] = ""
-
-    t = thresholds.get(code, thresholds.get("default"))
-
-    for i in range(1, len(df)):
-        k, d, j = df.iloc[i]["K"], df.iloc[i]["D"], df.iloc[i]["J"]
-        k_prev, d_prev, j_prev = df.iloc[i - 1]["K"], df.iloc[i - 1]["D"], df.iloc[i - 1]["J"]
-
-        #buy_cond = (
-        #    k < t["buy"]["k_max"] and
-        #    d < t["buy"]["d_max"] and
-        #    j < t["buy"]["j_max"]
-        #)
-        buy_cond = (
-            k+d < t["buy"]["k_max"]+ t["buy"]["d_max"] and
-            j < t["buy"]["j_max"]
-        )
-
-        sell_cond = (
-            k > t["sell"]["k_min"] and
-            d > t["sell"]["d_min"] and
-            j > t["sell"]["j_min"]
-        )
-
-        turn_up = k > k_prev and d > d_prev and j > j_prev
-        turn_down = k < k_prev and d < d_prev and j < j_prev
-
-        if buy_cond and (not t["buy"].get("require_turn_up") or turn_up):
-            df.at[df.index[i], "signal"] = "BUY"
-        elif sell_cond and (not t["sell"].get("require_turn_down") or turn_down):
-            df.at[df.index[i], "signal"] = "SELL"
-
+    df["signal"] = signals
+    
     return df
