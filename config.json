@@ -1,0 +1,50 @@
+{
+    "log": { "level": "INFO" },
+    "session": {
+      "exchange_tz": "Asia/Shanghai",
+      "date": "auto",
+      "windows": ["09:30-11:30", "13:00-15:00"]
+    },
+    "stocks": ["600893"],
+    "request": {
+      "timeout_sec": 5,
+      "interval_sec_min": 20,
+      "interval_sec_max": 30
+    },
+    "kdj_param": {
+      "n": 9,
+      "m1": 3,
+      "m2": 3
+    },
+    "thresholds": {
+      "default": {
+        "buy": {
+          "k_max": 10,
+          "d_max": 10,
+          "j_max": 0,
+          "require_turn_up": false
+        },
+        "sell": {
+          "k_min": 90,
+          "d_min": 90,
+          "j_min": 100,
+          "require_turn_down": false
+        }
+      },
+      "600893": {
+        "buy": {
+          "k_max": 25,
+          "d_max": 25,
+          "j_max": 10,
+          "require_turn_up": false
+        },
+        "sell": {
+          "k_min": 88,
+          "d_min": 88,
+          "j_min": 100,
+          "require_turn_down": false
+        }
+      }
+    }
+  }
+  

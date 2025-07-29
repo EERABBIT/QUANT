@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>KDJ Monitor</title>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #fff;
+      font-family: sans-serif;
+    }
+    #main {
+      height: 100vh;
+      width: 100%;
+    }
+  </style>
+</head>
+<body>
+  <div id="main"></div>
+  <script>
+    const chart = echarts.init(document.getElementById('main'));
+
+    const option = {
+      title: { text: 'KDJ 实时监控' },
+      tooltip: { trigger: 'axis' },
+      legend: { data: ['K', 'D', 'J'] },
+      xAxis: { type: 'category', data: [] },
+      yAxis: { type: 'value' },
+      series: [
+        { name: 'K', type: 'line', data: [] },
+        { name: 'D', type: 'line', data: [] },
+        { name: 'J', type: 'line', data: [] },
+        { name: 'Signal', type: 'scatter', data: [], symbolSize: 12, 
+          itemStyle: { color: '#e60039' } },
+        { name: 'Now', type: 'scatter', data: [], symbolSize: 18, 
+          itemStyle: { color: '#ffcc00' } }
+      ]
+    };
+
+    chart.setOption(option);
+
+    function update(data) {
+      const times = data.map(d => d.time);
+      const K = data.map(d => d.K);
+      const D = data.map(d => d.D);
+      const J = data.map(d => d.J);
+
+      const signals = data.filter(d => d.signal && !d.realtime)
+                          .map(d => ({ value: [d.time, d.J] }));
+      const realtime = data.filter(d => d.signal && d.realtime)
+                          .map(d => ({ value: [d.time, d.J] }));
+
+      chart.setOption({
+        xAxis: { data: times },
+        series: [
+          { data: K },
+          { data: D },
+          { data: J },
+          { data: signals },
+          { data: realtime }
+        ]
+      });
+    }
+
+    const ws = new WebSocket('ws://localhost:8765');
+    ws.onmessage = evt => {
+      const json = JSON.parse(evt.data);
+      const code = Object.keys(json)[0];
+      update(json[code]);
+    };
+  </script>
+</body>
+</html>
