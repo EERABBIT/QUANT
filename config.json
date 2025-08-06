@@ -39,12 +39,27 @@
           "require_turn_up": false
         },
         "sell": {
-          "k_min": 88,
-          "d_min": 88,
-          "j_min": 100,
+          "k_min": 90,
+          "d_min": 85,
+          "j_min": 95,
+          "require_turn_down": false
+        }
+      },
+      "600038": {
+        "buy": {
+          "k_max": 20,
+          "d_max": 25,
+          "j_max": 10,
+          "require_turn_up": false
+        },
+        "sell": {
+          "k_min": 90,
+          "d_min": 85,
+          "j_min": 95,
           "require_turn_down": false
         }
       }
+
     }
   }
   

@@ -1,75 +1,122 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
-  <meta charset="UTF-8">
-  <title>KDJ Monitor</title>
-  <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
-  <style>
-    html, body {
-      margin: 0;
-      padding: 0;
-      background: #fff;
-      font-family: sans-serif;
-    }
-    #main {
-      height: 100vh;
-      width: 100%;
-    }
-  </style>
+<meta charset="UTF-8">
+<title>KDJ + MACD 监控</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<style>
+*{box-sizing:border-box;}
+body{margin:0;background:#f5f5f5;font-family:system-ui;}
+#wrap{display:flex;flex-direction:column;height:100vh;gap:6px;padding:4px;}
+.chart{flex:1;border:1px solid #ddd;border-radius:6px;background:#fff;}
+</style>
 </head>
 <body>
-  <div id="main"></div>
-  <script>
-    const chart = echarts.init(document.getElementById('main'));
+<div id="wrap">
+  <div id="price" class="chart"></div>
+  <div id="kdj"   class="chart"></div>
+  <div id="macd"  class="chart"></div>
+</div>
 
-    const option = {
-      title: { text: 'KDJ 实时监控' },
-      tooltip: { trigger: 'axis' },
-      legend: { data: ['K', 'D', 'J'] },
-      xAxis: { type: 'category', data: [] },
-      yAxis: { type: 'value' },
-      series: [
-        { name: 'K', type: 'line', data: [] },
-        { name: 'D', type: 'line', data: [] },
-        { name: 'J', type: 'line', data: [] },
-        { name: 'Signal', type: 'scatter', data: [], symbolSize: 12, 
-          itemStyle: { color: '#e60039' } },
-        { name: 'Now', type: 'scatter', data: [], symbolSize: 18, 
-          itemStyle: { color: '#ffcc00' } }
-      ]
-    };
+<script>
+const priceC = echarts.init(document.getElementById('price'));
+const kdjC   = echarts.init(document.getElementById('kdj'));
+const macdC  = echarts.init(document.getElementById('macd'));
 
-    chart.setOption(option);
+const baseOpt = {
+  animation:false,
+  tooltip:{trigger:'axis'},
+  xAxis:{type:'category',data:[]},
+  grid:{left:40,right:10,top:25,bottom:25}
+};
 
-    function update(data) {
-      const times = data.map(d => d.time);
-      const K = data.map(d => d.K);
-      const D = data.map(d => d.D);
-      const J = data.map(d => d.J);
+// ── 股价图 ──────────────────
+priceC.setOption({
+  ...baseOpt,
+  title:{text:'Price',left:'center'},
+  yAxis:{type:'value',scale:true},
+  series:[
+    {name:'close',type:'line',data:[],smooth:true,lineStyle:{width:1.5}},
+    {name:'Combo',type:'scatter',data:[],symbolSize:12,
+      itemStyle:{color:'#00aa55'}}        <!-- 绿色点 -->
+  ]
+});
 
-      const signals = data.filter(d => d.signal && !d.realtime)
-                          .map(d => ({ value: [d.time, d.J] }));
-      const realtime = data.filter(d => d.signal && d.realtime)
-                          .map(d => ({ value: [d.time, d.J] }));
+// ── KDJ 图 ───────────────────
+kdjC.setOption({
+  ...baseOpt,
+  title:{text:'KDJ',left:'center'},
+  yAxis:{type:'value'},
+  series:[
+    {name:'K',type:'line',data:[],smooth:true},
+    {name:'D',type:'line',data:[],smooth:true},
+    {name:'J',type:'line',data:[],smooth:true},
+    {name:'KDJ Sig',type:'scatter',data:[],symbolSize:10,
+      itemStyle:{color:'#e60039'}}        <!-- 红点 -->
+  ]
+});
 
-      chart.setOption({
-        xAxis: { data: times },
-        series: [
-          { data: K },
-          { data: D },
-          { data: J },
-          { data: signals },
-          { data: realtime }
-        ]
-      });
-    }
+// ── MACD 图 ──────────────────
+macdC.setOption({
+  ...baseOpt,
+  title:{text:'MACD',left:'center'},
+  yAxis:{type:'value'},
+  legend:{data:['MACD','DIF','DEA']},
+  series:[
+    {name:'MACD',type:'bar',data:[],itemStyle:{opacity:0.6}},
+    {name:'DIF', type:'line',data:[],smooth:true},
+    {name:'DEA', type:'line',data:[],smooth:true},
+    {name:'MACD Sig',type:'scatter',data:[],symbolSize:10,
+      itemStyle:{color:'#ffcc00'}}        <!-- 黄点 -->
+  ]
+});
 
-    const ws = new WebSocket('ws://localhost:8765');
-    ws.onmessage = evt => {
-      const json = JSON.parse(evt.data);
-      const code = Object.keys(json)[0];
-      update(json[code]);
-    };
-  </script>
+// ── 更新函数 ─────────────────
+function updateChart(arr){
+  const t = arr.map(d=>d.time);
+
+  // price
+  priceC.setOption({
+    xAxis:{data:t},
+    series:[
+      {data:arr.map(d=>d.close)},
+      {data:arr.filter(d=>d.combo_signal)
+               .map(d=>([d.time,d.close]))}
+    ]
+  });
+
+  // kdj
+  kdjC.setOption({
+    xAxis:{data:t},
+    series:[
+      {data:arr.map(d=>d.K)},
+      {data:arr.map(d=>d.D)},
+      {data:arr.map(d=>d.J)},
+      {data:arr.filter(d=>d.kdj_signal)
+               .map(d=>([d.time,d.J]))}
+    ]
+  });
+
+  // macd
+  macdC.setOption({
+    xAxis:{data:t},
+    series:[
+      {data:arr.map(d=>d.MACD)},
+      {data:arr.map(d=>d.DIF)},
+      {data:arr.map(d=>d.DEA)},
+      {data:arr.filter(d=>d.macd_signal)
+               .map(d=>([d.time,d.MACD]))}
+    ]
+  });
+}
+
+// ── WebSocket ────────────────
+const ws = new WebSocket('ws://localhost:8765');
+ws.onmessage = evt=>{
+  const data = JSON.parse(evt.data);
+  const code = Object.keys(data)[0];
+  updateChart(data[code]);
+};
+</script>
 </body>
 </html>

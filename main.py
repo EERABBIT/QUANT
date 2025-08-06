@@ -1,4 +1,3 @@
-import os
 import json
 import time
 import random
@@ -6,127 +5,127 @@ import logging
 import asyncio
 import threading
 from datetime import datetime, date
-import pytz
 
+import pytz
 import pandas as pd
 import websockets
 
-from em_api import get_minute_kline
-from signals import calc_kdj, detect_signal, detect_all_signals
+from em_api   import get_minute_kline
+from signals  import calc_kdj, calc_macd, detect_all_signals
 
-def in_trading_window(ts: pd.Timestamp, windows, tz):
+# ---------- 工具函数 ----------
+def trade_date_str(cfg_date: str, tz) -> str:
+    """返回交易日期字符串；cfg_date='auto' 时取今日"""
+    return datetime.now(tz).strftime("%Y%m%d") if cfg_date == "auto" else cfg_date
+
+def in_window(ts: pd.Timestamp, windows, tz) -> bool:
+    """判断时间戳是否落在交易时段"""
     if ts.tzinfo is None:
         ts = tz.localize(ts)
-    local_time = ts.astimezone(tz)
-    t = local_time.time()
+    tm = ts.astimezone(tz).time()
     for w in windows:
-        s, e = w.split("-")
-        s_t = datetime.strptime(s, "%H:%M").time()
-        e_t = datetime.strptime(e, "%H:%M").time()
-        if s_t <= t <= e_t:
+        s, e = [datetime.strptime(t, "%H:%M").time() for t in w.split("-")]
+        if s <= tm <= e:
             return True
     return False
 
-def ensure_today_str(cfg_date: str, tz) -> str:
-    if cfg_date == "auto":
-        return datetime.now(tz).strftime("%Y%m%d")
-    return cfg_date
+def setup_log(level="INFO"):
+    logging.basicConfig(level=getattr(logging, level.upper(), logging.INFO),
+                        format="[%(asctime)s] %(levelname)s: %(message)s",
+                        datefmt="%H:%M:%S")
 
-def setup_logger(level="INFO"):
-    logging.basicConfig(
-        level=getattr(logging, level.upper(), logging.INFO),
-        format="[%(asctime)s] %(levelname)s: %(message)s",
-        datefmt="%H:%M:%S"
-    )
+# ---------- WebSocket ----------
+latest_payload = {}
 
-latest_data = {}
-async def websocket_handler(websocket):
+async def ws_handler(ws):
+    logging.info("WebSocket connected")
     try:
-        logging.info("connection open")
         while True:
             await asyncio.sleep(1)
-            if latest_data:
-                msg = json.dumps(latest_data, default=str)
-                await websocket.send(msg)
+            if latest_payload:
+                await ws.send(json.dumps(latest_payload, default=str))
     except websockets.exceptions.ConnectionClosed:
-        logging.info("connection closed")
-    except Exception as e:
-        logging.error("connection handler failed: %s", e)
+        logging.info("WebSocket disconnected")
 
-def run_server():
+def run_ws_server():
     async def start():
-        async with websockets.serve(websocket_handler, "0.0.0.0", 8765):
-            logging.info("server listening on 0.0.0.0:8765")
+        async with websockets.serve(ws_handler, "0.0.0.0", 8765):
+            logging.info("WebSocket server on :8765")
             await asyncio.Future()
     asyncio.run(start())
 
+# ---------- 主流程 ----------
 def main():
-    global latest_data
+    global latest_payload
 
-    with open("config.json", "r", encoding="utf-8") as f:
-        cfg = json.load(f)
-
-    setup_logger(cfg["log"].get("level", "INFO"))
+    cfg = json.load(open("config.json", encoding="utf-8"))
+    setup_log(cfg["log"].get("level", "INFO"))
 
     tz = pytz.timezone(cfg["session"]["exchange_tz"])
-    date_str = ensure_today_str(cfg["session"].get("date", "auto"), tz)
+    trade_date = trade_date_str(cfg["session"]["date"], tz)
+    logging.info("Start %s", trade_date)
 
-    logging.info("=== start monitor %s ===", date_str)
-    logging.info("stocks: %s", cfg["stocks"])
+    # 记录上一条各自指标信号时间，避免日志刷屏
+    last_kdj_time  = {c: None for c in cfg["stocks"]}
+    last_macd_time = {c: None for c in cfg["stocks"]}
 
-    last_signal_time = {code: None for code in cfg["stocks"]}
-
-    threading.Thread(target=run_server, daemon=True).start()
+    threading.Thread(target=run_ws_server, daemon=True).start()
 
     while True:
         now = datetime.now(tz)
-        in_sess = in_trading_window(now, cfg["session"]["windows"], tz)
+        in_sess = in_window(now, cfg["session"]["windows"], tz)
 
         for code in cfg["stocks"]:
             try:
-                df = get_minute_kline(code, date_str, timeout=cfg["request"]["timeout_sec"])
-                if df.empty:
-                    logging.warning("%s no kline data", code)
+                df_raw = get_minute_kline(code, trade_date,
+                                          timeout=cfg["request"]["timeout_sec"])
+                if df_raw.empty:
                     continue
 
-                df["time"] = pd.to_datetime(df["time"]).dt.tz_localize(tz)
-                df_today = df[df["time"].dt.date == date.today()].copy()
-                df_today = df_today[df_today["time"].apply(lambda t: in_trading_window(t, cfg["session"]["windows"], tz))]
-
-                if df_today.empty:
-                    logging.debug("%s no data in session window yet", code)
+                # 当天、交易时段内
+                df_raw["time"] = pd.to_datetime(df_raw["time"]).dt.tz_localize(tz)
+                df_day = df_raw[df_raw["time"].dt.date == date.today()]
+                df_day = df_day[df_day["time"].apply(
+                                lambda t: in_window(t, cfg["session"]["windows"], tz))]
+                if df_day.empty:
                     continue
 
-                df_today = calc_kdj(
-                    df_today,
-                    n=cfg["kdj_param"]["n"],
-                    m1=cfg["kdj_param"]["m1"],
-                    m2=cfg["kdj_param"]["m2"]
-                )
+                # 计算指标
+                df_day = calc_kdj(df_day,
+                                  n=cfg["kdj_param"]["n"],
+                                  m1=cfg["kdj_param"]["m1"],
+                                  m2=cfg["kdj_param"]["m2"])
+                df_day = calc_macd(df_day)
+                df_day = detect_all_signals(df_day, code, cfg["thresholds"])
 
-                sig = detect_signal(df_today, code, cfg["thresholds"])
-                df_with_signals = detect_all_signals(df_today, code, cfg["thresholds"])
+                # ---------- 推送 ----------
+                times = []
+                latest_kdj  = next((r for _, r in df_day[::-1].iterrows()
+                                    if r.kdj_signal),  None)
+                latest_macd = next((r for _, r in df_day[::-1].iterrows()
+                                    if r.macd_signal), None)
+                if latest_kdj is not None:  times.append(latest_kdj.time)
+                if latest_macd is not None: times.append(latest_macd.time)
+                latest_time = max(times) if times else None
+                df_day["realtime"] = df_day["time"] == latest_time
 
-                if sig.side != "NONE":
-                    if last_signal_time.get(code) != sig.time:
-                        logging.info("[%s] %s @ %s  K=%.2f D=%.2f J=%.2f  (%s)",
-                                     code, sig.side, sig.time, sig.k, sig.d, sig.j, sig.reason)
-                        last_signal_time[code] = sig.time
-                else:
-                    logging.info("[%s] @ %s  K=%.2f D=%.2f J=%.2f", code, sig.time, sig.k, sig.d, sig.j)
-
-                # 更新前端数据结构
-                df_with_signals["realtime"] = df_with_signals["time"] == sig.time
-                df_with_signals["signal"] = df_with_signals.apply(
-                    lambda r: sig.side if r["realtime"] else r["signal"], axis=1
-                )
-
-                latest_data[code] = df_with_signals[["time", "K", "D", "J", "signal", "realtime"]].to_dict("records")
+                latest_payload[code] = df_day[[
+                    "time","close",
+                    "K","D","J",
+                    "DIF","DEA","MACD",
+                    "kdj_signal","macd_signal",
+                    "combo_signal",          # <-- 新列
+                    "realtime"
+                ]].to_dict("records")
 
             except Exception as e:
-                logging.exception("code %s error: %s", code, e)
+                logging.exception("%s error: %s", code, e)
 
-        time.sleep(random.uniform(cfg["request"]["interval_sec_min"], cfg["request"]["interval_sec_max"]) if in_sess else 60)
+        # 交易时段内按最小/最大秒随机刷新；非交易时段每 60s
+        sleep_sec = (random.uniform(cfg["request"]["interval_sec_min"],
+                                    cfg["request"]["interval_sec_max"])
+                     if in_sess else 60)
+        time.sleep(sleep_sec)
 
 if __name__ == "__main__":
     main()
