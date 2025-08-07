@@ -31,12 +31,11 @@ pip install pandas websockets pytz requests
 ## 🚀 快速启动
 
 ```bash
-# 1. 启动后端
-python main.py   # 监听 ws://localhost:8765
+# 启动后端
+python main.py --code 600893 --name 航发动力 --port 9000
 
-# 2. 打开前端
-#   方式一：直接双击 frontend/index.html
-#   方式二：VS Code Live Server 打开以热刷新
+# 打开前端（用 VS Code Live Server 或本地服务器）
+http://127.0.0.1:5500/frontend/index.html?port=9000
 ```
 
 ---

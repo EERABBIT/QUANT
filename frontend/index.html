@@ -1,122 +1,123 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-<meta charset="UTF-8">
-<title>KDJ + MACD 监控</title>
-<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
-<style>
-*{box-sizing:border-box;}
-body{margin:0;background:#f5f5f5;font-family:system-ui;}
-#wrap{display:flex;flex-direction:column;height:100vh;gap:6px;padding:4px;}
-.chart{flex:1;border:1px solid #ddd;border-radius:6px;background:#fff;}
-</style>
+  <meta charset="UTF-8" />
+  <title>行情监控</title>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #f5f5f5; font-family: system-ui; }
+    #wrap { display: flex; flex-direction: column; height: 100vh; gap: 6px; padding: 4px; }
+    .chart { flex: 1; border: 1px solid #ddd; border-radius: 6px; background: #fff; }
+    h2 { margin: 4px 0; text-align: center; }
+  </style>
 </head>
 <body>
-<div id="wrap">
-  <div id="price" class="chart"></div>
-  <div id="kdj"   class="chart"></div>
-  <div id="macd"  class="chart"></div>
-</div>
+  <h2 id="stockTitle">等待数据 …</h2>
 
-<script>
-const priceC = echarts.init(document.getElementById('price'));
-const kdjC   = echarts.init(document.getElementById('kdj'));
-const macdC  = echarts.init(document.getElementById('macd'));
+  <div id="wrap">
+    <div id="price" class="chart"></div>
+    <div id="kdj"   class="chart"></div>
+    <div id="macd"  class="chart"></div>
+  </div>
 
-const baseOpt = {
-  animation:false,
-  tooltip:{trigger:'axis'},
-  xAxis:{type:'category',data:[]},
-  grid:{left:40,right:10,top:25,bottom:25}
-};
+  <script>
+  /* ---------- 解析查询参数：?port=XXXX ---------- */
+  const qs     = new URLSearchParams(location.search);
+  const wsPort = qs.get('port') || 8765;       // 默认 8765
 
-// ── 股价图 ──────────────────
-priceC.setOption({
-  ...baseOpt,
-  title:{text:'Price',left:'center'},
-  yAxis:{type:'value',scale:true},
-  series:[
-    {name:'close',type:'line',data:[],smooth:true,lineStyle:{width:1.5}},
-    {name:'Combo',type:'scatter',data:[],symbolSize:12,
-      itemStyle:{color:'#00aa55'}}        <!-- 绿色点 -->
-  ]
-});
+  /* ---------- 初始化图表 ---------- */
+  const priceC = echarts.init(document.getElementById('price'));
+  const kdjC   = echarts.init(document.getElementById('kdj'));
+  const macdC  = echarts.init(document.getElementById('macd'));
+  const title  = document.getElementById('stockTitle');
 
-// ── KDJ 图 ───────────────────
-kdjC.setOption({
-  ...baseOpt,
-  title:{text:'KDJ',left:'center'},
-  yAxis:{type:'value'},
-  series:[
-    {name:'K',type:'line',data:[],smooth:true},
-    {name:'D',type:'line',data:[],smooth:true},
-    {name:'J',type:'line',data:[],smooth:true},
-    {name:'KDJ Sig',type:'scatter',data:[],symbolSize:10,
-      itemStyle:{color:'#e60039'}}        <!-- 红点 -->
-  ]
-});
+  const baseOpt = {
+    animation: false,
+    tooltip: { trigger: 'axis' },
+    xAxis: { type: 'category', data: [] },
+    grid: { left: 40, right: 10, top: 25, bottom: 25 }
+  };
 
-// ── MACD 图 ──────────────────
-macdC.setOption({
-  ...baseOpt,
-  title:{text:'MACD',left:'center'},
-  yAxis:{type:'value'},
-  legend:{data:['MACD','DIF','DEA']},
-  series:[
-    {name:'MACD',type:'bar',data:[],itemStyle:{opacity:0.6}},
-    {name:'DIF', type:'line',data:[],smooth:true},
-    {name:'DEA', type:'line',data:[],smooth:true},
-    {name:'MACD Sig',type:'scatter',data:[],symbolSize:10,
-      itemStyle:{color:'#ffcc00'}}        <!-- 黄点 -->
-  ]
-});
-
-// ── 更新函数 ─────────────────
-function updateChart(arr){
-  const t = arr.map(d=>d.time);
-
-  // price
   priceC.setOption({
-    xAxis:{data:t},
-    series:[
-      {data:arr.map(d=>d.close)},
-      {data:arr.filter(d=>d.combo_signal)
-               .map(d=>([d.time,d.close]))}
+    ...baseOpt,
+    title: { text: 'Price', left: 'center' },
+    yAxis: { type: 'value', scale: true },
+    series: [
+      { name: 'close', type: 'line', data: [], smooth: true, lineStyle: { width: 1.5 } },
+      { name: 'Combo', type: 'scatter', data: [], symbolSize: 12, itemStyle: { color: '#00aa55' } }
     ]
   });
 
-  // kdj
   kdjC.setOption({
-    xAxis:{data:t},
-    series:[
-      {data:arr.map(d=>d.K)},
-      {data:arr.map(d=>d.D)},
-      {data:arr.map(d=>d.J)},
-      {data:arr.filter(d=>d.kdj_signal)
-               .map(d=>([d.time,d.J]))}
+    ...baseOpt,
+    title: { text: 'KDJ', left: 'center' },
+    yAxis: { type: 'value' },
+    series: [
+      { name: 'K', type: 'line', data: [], smooth: true },
+      { name: 'D', type: 'line', data: [], smooth: true },
+      { name: 'J', type: 'line', data: [], smooth: true },
+      { name: 'KDJ Sig', type: 'scatter', data: [], symbolSize: 10, itemStyle: { color: '#e60039' } }
     ]
   });
 
-  // macd
   macdC.setOption({
-    xAxis:{data:t},
-    series:[
-      {data:arr.map(d=>d.MACD)},
-      {data:arr.map(d=>d.DIF)},
-      {data:arr.map(d=>d.DEA)},
-      {data:arr.filter(d=>d.macd_signal)
-               .map(d=>([d.time,d.MACD]))}
+    ...baseOpt,
+    title: { text: 'MACD', left: 'center' },
+    yAxis: { type: 'value' },
+    legend: { show: false },
+    series: [
+      { name: 'MACD', type: 'bar', data: [], itemStyle: { opacity: 0.6 } },
+      { name: 'DIF',  type: 'line', data: [], smooth: true },
+      { name: 'DEA',  type: 'line', data: [], smooth: true },
+      { name: 'MACD Sig', type: 'scatter', data: [], symbolSize: 10, itemStyle: { color: '#e60039' } }
     ]
   });
-}
 
-// ── WebSocket ────────────────
-const ws = new WebSocket('ws://localhost:8765');
-ws.onmessage = evt=>{
-  const data = JSON.parse(evt.data);
-  const code = Object.keys(data)[0];
-  updateChart(data[code]);
-};
-</script>
+  /* ---------- 更新函数 ---------- */
+  function updateChart(codeName, arr) {
+    title.textContent = codeName;
+    const t = arr.map(d => d.time);
+
+    priceC.setOption({
+      xAxis: { data: t },
+      series: [
+        { data: arr.map(d => d.close) },
+        { data: arr.filter(d => d.combo_signal).map(d => [d.time, d.close]) }
+      ]
+    });
+
+    kdjC.setOption({
+      xAxis: { data: t },
+      series: [
+        { data: arr.map(d => d.K) },
+        { data: arr.map(d => d.D) },
+        { data: arr.map(d => d.J) },
+        { data: arr.filter(d => d.kdj_signal).map(d => [d.time, d.J]) }
+      ]
+    });
+
+    macdC.setOption({
+      xAxis: { data: t },
+      series: [
+        { data: arr.map(d => d.MACD) },
+        { data: arr.map(d => d.DIF) },
+        { data: arr.map(d => d.DEA) },
+        { data: arr.filter(d => d.macd_signal).map(d => [d.time, d.MACD]) }
+      ]
+    });
+  }
+
+  /* ---------- WebSocket ---------- */
+  const ws = new WebSocket(`ws://localhost:${wsPort}`);
+  ws.onmessage = evt => {
+    const data = JSON.parse(evt.data);
+    const code = Object.keys(data)[0];
+    const arr  = data[code];
+    const codeName = arr.length ? `${code} ${arr[0].name}` : code;
+    updateChart(codeName, arr);
+  };
+  ws.onerror = () => title.textContent = `WebSocket 连接失败 (端口 ${wsPort})`;
+  </script>
 </body>
 </html>

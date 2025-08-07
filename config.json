@@ -5,7 +5,13 @@
       "date": "auto",
       "windows": ["09:30-11:30", "13:00-15:00"]
     },
-    "stocks": ["600893"],
+    "notify": {
+      "mac": true
+    },    
+    "stocks": {
+      "600893": "航发动力"
+    },
+    "port": 8765, 
     "request": {
       "timeout_sec": 5,
       "interval_sec_min": 20,
